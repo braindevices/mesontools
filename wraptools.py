@@ -18,16 +18,21 @@ def parse_wrap(fpath: str):
     return cgp
 
 # maybe we should import load_wrap from meson wraptool, instead of create our own parser?
-def load_wrap(subdir_root: str, packagename: str):
+def _load_wrap(subdir_root: str, packagename: str):
     fpath = os.path.join(subdir_root, packagename + '.wrap')
     if os.path.isfile(fpath):
         return parse_wrap(fpath)
     return None
 
+# there is no load_wrap in meson any more, but we can still use the PackageDefinition
+def load_wrap(subdir_root: str, packagename: str)->wrap.PackageDefinition:
+    fname = os.path.join(subdir_root, packagename + '.wrap')
+    return wrap.PackageDefinition(fname)
 
-def get_rev_for_wrap_git(repo_dir: str, remote_url: str, remote_ref: str):
+
+def get_rev_for_wrap_git(repo_dir: str, remote_url: str, remote_ref: str, remote_only: bool):
     rev = None
-    if os.path.isdir(repo_dir):
+    if not remote_only and os.path.isdir(repo_dir):
         rev = git_helpers.get_revision_from_git_repo(repo_dir)
         if rev:
             return rev
@@ -37,11 +42,12 @@ def get_rev_for_wrap_git(repo_dir: str, remote_url: str, remote_ref: str):
     return rev
 
 
-def get_current_subproject_revision(subdir_root: str, packagename: str):
-    pkg, subproject_dir = wrap.get_directory(subdir_root, packagename)
+def get_current_subproject_revision(subdir_root: str, packagename: str, remote_only: bool):
+    pkg = load_wrap(subdir_root, packagename)
+    subproject_dir = pkg.directory
     subproject_path = os.path.join(subdir_root, subproject_dir)
     if pkg.type == 'git':
-        return get_rev_for_wrap_git(subproject_path, pkg.get('url'), pkg.get('revision'))
+        return get_rev_for_wrap_git(subproject_path, pkg.get('url'), pkg.get('revision'), remote_only)
     else:
         logger.warning('does not support wrap type: {}'.format(pkg.type))
 
@@ -56,13 +62,13 @@ def save_wrap(subdir_root: str, packagename: str, wrap_config: ConfigParser, ove
             raise RuntimeError('wrap file {} exists.'.format(fpath))
 
     with open(fpath, 'w') as _f:
-        wrap_config.write(_f)
+        wrap_config.write(_f,  space_around_delimiters=False)
 
 
-def change_subporject_revision_to_current_head(subdir_root: str, packagename: str, dryrun: bool = True):
-    pkg = wrap.load_wrap(subdir_root, packagename)
+def change_subporject_revision_to_hash(subdir_root: str, packagename: str, remote_only: bool, dryrun: bool = True):
+    pkg = load_wrap(subdir_root, packagename)
     wrap_config = pkg.config
-    rev = get_current_subproject_revision(subdir_root, packagename)
+    rev = get_current_subproject_revision(subdir_root, packagename, remote_only)
     if rev:
         wrap_section = wrap_config.sections()[0]
         wrap_config[wrap_section]['revision'] = rev
